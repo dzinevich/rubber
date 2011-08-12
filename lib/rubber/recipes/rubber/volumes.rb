@@ -217,7 +217,7 @@ namespace :rubber do
     if create
       mdadm_init = "yes | mdadm --create #{raid_spec['device']} --metadata=1.1 --level #{raid_spec['raid_level']} --raid-devices #{raid_spec['source_devices'].size} #{raid_spec['source_devices'].sort.join(' ')}"
     else
-      mdadm_init = "yes | mdadm --assemble #{raid_spec['device']} #{raid_spec['source_devices'].sort.join(' ')}"
+      mdadm_init = "yes | mdadm --assemble #{raid_spec['device']} #{raid_spec['source_devices'].sort.join(' ')} && sleep 2"
     end
 
     task :_setup_raid_volume, :hosts => ic.external_ip do
@@ -239,13 +239,11 @@ namespace :rubber do
           # set reconstruction speed
           echo $((30*1024)) > /proc/sys/dev/raid/speed_limit_min
 
-          echo 'MAILADDR #{rubber_env.admin_email}' > /etc/mdadm/mdadm.conf
-          echo 'DEVICE /dev/hd*[0-9] /dev/sd*[0-9]' >> /etc/mdadm/mdadm.conf
-          mdadm --detail --scan >> /etc/mdadm/mdadm.conf
+	  /usr/share/mdadm/mkconf > /etc/mdadm/mdadm.conf
 
-          mv /etc/rc.local /etc/rc.local.bak
-          echo "mdadm --assemble --scan" > /etc/rc.local
-          chmod +x /etc/rc.local
+          #mv /etc/rc.local /etc/rc.local.bak
+          #echo "mdadm --assemble --scan" > /etc/rc.local
+          #chmod +x /etc/rc.local
 
           #{('yes | mkfs -t ' + raid_spec['filesystem'] + ' ' + raid_spec['filesystem_opts'] + ' ' + raid_spec['device']) if create}
           mkdir -p '#{raid_spec['mount']}'
