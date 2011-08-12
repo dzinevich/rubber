@@ -1,3 +1,5 @@
+require "bundler/capistrano" if Rubber::Util.is_bundler?
+
 namespace :rubber do
 
   desc <<-DESC
@@ -19,7 +21,7 @@ namespace :rubber do
   def enable_root_ssh(ip, initial_ssh_user)
 
     task :_allow_root_ssh, :hosts => "#{initial_ssh_user}@#{ip}" do
-      sleep 20
+      sleep 20 
       rsudo "cp /home/#{initial_ssh_user}/.ssh/authorized_keys /root/.ssh/"
     end
 
@@ -256,26 +258,6 @@ namespace :rubber do
   DESC
   task :install_gems do
     gem_helper(false)
-  end
-
-  desc <<-DESC
-    Install ruby gems defined in Gemfile
-  DESC
-  after "deploy:update_code", "rubber:install_bundler_gems" if Rubber::Util.is_bundler?
-  task :install_bundler_gems do
-    # copied from bundler/capistrano in bundler distro
-    bundle_dir     = fetch(:bundle_dir,         " #{fetch(:shared_path)}/bundle")
-    bundle_without = [*fetch(:bundle_without,   [:development, :test])].compact
-    bundle_flags   = fetch(:bundle_flags, "--deployment --quiet")
-    bundle_gemfile = fetch(:bundle_gemfile,     "Gemfile")
-    bundle_cmd     = fetch(:bundle_cmd, "bundle")
-  
-    args = ["--gemfile #{fetch(:latest_release)}/#{bundle_gemfile}"]
-    args << "--path #{bundle_dir}" unless bundle_dir.to_s.empty?
-    args << bundle_flags.to_s
-    args << "--without #{bundle_without.join(" ")}" unless bundle_without.empty?
-
-    rsudo "#{bundle_cmd} install #{args.join(' ')}"
   end
 
   desc <<-DESC

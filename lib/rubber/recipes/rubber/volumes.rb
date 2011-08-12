@@ -28,7 +28,13 @@ namespace :rubber do
       raid_specs.each do |raid_spec|
         # we want to format if we created the ec2 volumes, or if we don't have any
         # ec2 volumes and are just creating raid array from ephemeral stores
-        format = raid_spec['source_devices'].all? {|dev| created_vols.include?(dev)}
+        release = capture("lsb_release -r | awk '{print $2}' | cut -d '.' -f1")
+        if release.to_i > 10
+          created_vols = created_vols.map{|el| el.sub(%r(^/dev/sd), '/dev/xvd') }
+          format = raid_spec['source_devices'].all? {|dev| created_vols.include?(dev)}
+        else
+          format = raid_spec['source_devices'].all? {|dev| created_vols.include?(dev)}
+        end
         setup_raid_volume(ic, raid_spec, format)
       end
 
@@ -215,6 +221,7 @@ namespace :rubber do
 
   def setup_raid_volume(ic, raid_spec, create=false)
     if create
+      new = "1"
       mdadm_init = "yes | mdadm --create #{raid_spec['device']} --metadata=1.1 --level #{raid_spec['raid_level']} --raid-devices #{raid_spec['source_devices'].size} #{raid_spec['source_devices'].sort.join(' ')}"
     else
       mdadm_init = "yes | mdadm --assemble #{raid_spec['device']} #{raid_spec['source_devices'].sort.join(' ')} && sleep 2"
@@ -222,19 +229,34 @@ namespace :rubber do
 
     task :_setup_raid_volume, :hosts => ic.external_ip do
       rubber.sudo_script 'setup_raid_volume', <<-ENDSCRIPT
-        if ! grep -q '#{raid_spec['device']}' /etc/fstab; then
+        if ! grep -qE '#{raid_spec['device']}|#{raid_spec['mount']}' /etc/fstab; then
           if mount | grep -q '#{raid_spec['mount']}'; then
             umount '#{raid_spec['mount']}'
           fi
           mv /etc/fstab /etc/fstab.bak
-          cat /etc/fstab.bak | grep -v '#{raid_spec['mount']}' > /etc/fstab
+          cat /etc/fstab.bak | grep -vE '#{raid_spec['device']}|#{raid_spec['mount']}' > /etc/fstab
           echo '#{raid_spec['device']} #{raid_spec['mount']} #{raid_spec['filesystem']} noatime 0 0 # rubber raid volume' >> /etc/fstab
 
           # seems to help devices initialize, otherwise mdadm fails because
           # device not ready even though ec2 says the volume is attached
           fdisk -l &> /dev/null
+          
+          # Write some zeroes to ensure that disks are operational
+          new=#{new}
+          if [ "$new" = "1" ]
+          then
+            devlist="#{raid_spec['source_devices'].sort.join(' ')}"
+            for loop in $devlist
+            do
+              dd if=/dev/zero of=$loop bs=512k count=10
+            done
+          fi
+          # that required because udev will create md127 before mdadm will init disks, and creation will fail
+          mv /lib/udev/rules.d/85-mdadm.rules /tmp
 
           #{mdadm_init}
+
+          mv /tmp/85-mdadm.rules /lib/udev/rules.d/
 
           # set reconstruction speed
           echo $((30*1024)) > /proc/sys/dev/raid/speed_limit_min
@@ -324,8 +346,14 @@ namespace :rubber do
         for device in #{physical_volumes.join(' ')}
         do
           if ! pvdisplay $device >> /dev/null 2>&1; then
+
             if grep $device /etc/mtab; then
               umount $device
+            fi
+
+            if grep -q "$device" /etc/fstab; then
+              mv /etc/fstab /etc/fstab.bak
+              cat /etc/fstab.bak | grep -v "$device\\b" > /etc/fstab
             fi
 
             pvcreate $device
