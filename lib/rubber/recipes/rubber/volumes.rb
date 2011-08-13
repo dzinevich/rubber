@@ -223,8 +223,10 @@ namespace :rubber do
     if create
       new = "1"
       mdadm_init = "yes | mdadm --create #{raid_spec['device']} --metadata=1.1 --level #{raid_spec['raid_level']} --raid-devices #{raid_spec['source_devices'].size} #{raid_spec['source_devices'].sort.join(' ')}"
+      upd = "update-initramfs -u"
     else
       mdadm_init = "yes | mdadm --assemble #{raid_spec['device']} #{raid_spec['source_devices'].sort.join(' ')} && sleep 2"
+      upd= ""
     end
 
     task :_setup_raid_volume, :hosts => ic.external_ip do
@@ -266,7 +268,8 @@ namespace :rubber do
           #mv /etc/rc.local /etc/rc.local.bak
           #echo "mdadm --assemble --scan" > /etc/rc.local
           #chmod +x /etc/rc.local
-
+          
+          #{upd}
           #{('yes | mkfs -t ' + raid_spec['filesystem'] + ' ' + raid_spec['filesystem_opts'] + ' ' + raid_spec['device']) if create}
           mkdir -p '#{raid_spec['mount']}'
           mount '#{raid_spec['mount']}'
